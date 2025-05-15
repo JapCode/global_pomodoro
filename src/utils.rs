@@ -1,5 +1,11 @@
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpStream;
 use std::process::Command;
 use std::fs;
+use std::sync::{Arc, Mutex};
+
+use crate::config::PomodoroStateConfig;
+
 
 
 fn blocked_sites_path() -> String {
@@ -125,20 +131,109 @@ pub fn play_sound(file: &str) {
     }
 }
 
-// pub fn get_sound_directory() -> PathBuf {
-//     let mut home = env::var("HOME")
-//         .map(PathBuf::from)
-//         .unwrap_or_else(|_| env::current_dir().unwrap());
-//     home.push("PersonalProjects");
-//     home.push("rust-projects");
-//     home.push("global_pomodoro");
-//     home.push("src");
-//     home.push("sounds");
-//     home
-// }
 
-// pub fn get_sound_path(filename: &str) -> PathBuf {
-//     let mut path = get_sound_directory();
-//     path.push(filename);
-//     path
-// }
+pub fn set_config_interactivo(
+    stream: &mut TcpStream,
+    config: Arc<Mutex<PomodoroStateConfig>>,
+) -> &'static str {
+    let mut stream_writer = match stream.try_clone() {
+        Ok(writer) => writer,
+        Err(_) => return "❌ Failed to clone stream writer\n",
+    };
+    let mut reader = match stream.try_clone().map(BufReader::new) {
+        Ok(r) => r,
+        Err(_) => return "❌ Failed to clone stream reader\n",
+    };
+
+    writeln!(stream_writer, "🛠 Interactive configuration:").ok();
+
+    let mut cfg = config.lock().unwrap().clone(); // clone to edit
+
+    fn ask_and_update(
+        label: &str,
+        current: u32,
+        writer: &mut impl Write,
+        reader: &mut impl BufRead,
+    ) -> u32 {
+        writeln!(
+            writer,
+            "{} (current: {}s) - enter new value or press ENTER to keep:",
+            label, current
+        )
+        .ok();
+        writer.flush().ok();
+
+        let mut input = String::new();
+        if reader.read_line(&mut input).is_ok() {
+            let trimmed = input.trim();
+            if trimmed.is_empty() {
+                current
+            } else if let Ok(v) = trimmed.parse::<u32>() {
+                v
+            } else {
+                writeln!(writer, "❌ Invalid input. Keeping previous value.").ok();
+                current
+            }
+        } else {
+            writeln!(writer, "❌ Error reading input. Keeping previous value.").ok();
+            current
+        }
+    }
+
+    cfg.work_duration = ask_and_update(
+        "1. Work duration",
+        cfg.work_duration,
+        &mut stream_writer,
+        &mut reader,
+    );
+    cfg.break_duration = ask_and_update(
+        "2. Short break",
+        cfg.break_duration,
+        &mut stream_writer,
+        &mut reader,
+    );
+    cfg.long_break_duration = ask_and_update(
+        "3. Long break",
+        cfg.long_break_duration,
+        &mut stream_writer,
+        &mut reader,
+    );
+    cfg.cycles = ask_and_update(
+        "4. Number of cycles",
+        cfg.cycles,
+        &mut stream_writer,
+        &mut reader,
+    );
+    cfg.long_break_interval = ask_and_update(
+        "5. Long break interval",
+        cfg.long_break_interval,
+        &mut stream_writer,
+        &mut reader,
+    );
+
+    // Save config and update shared state
+    match cfg.save_config() {
+        Ok(_) => {
+            if let Ok(mut state) = config.lock() {
+                *state = cfg;
+            } else {
+                writeln!(
+                    stream_writer,
+                    "❌ Failed to acquire lock on configuration.\n"
+                )
+                .ok();
+            }
+            writeln!(stream_writer, "✅ Configuration saved successfully.\n").ok();
+        }
+        Err(e) => {
+            writeln!(
+                stream_writer,
+                "❌ Failed to save configuration: {}\n",
+                e
+            )
+            .ok();
+        }
+    }
+
+    "" // El contenido ya fue enviado manualmente al cliente
+}

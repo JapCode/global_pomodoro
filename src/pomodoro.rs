@@ -64,6 +64,14 @@ impl PomodoroHandle {
             self.start(config);
         }
     }
+
+    pub fn reset_progress(&mut self, config: Arc<Mutex<PomodoroStateConfig>>) {
+        let mut cfg = config.lock().unwrap();
+        let blocker = SiteBlocker::new(None);
+        SiteBlocker::unblock(&blocker);
+        let _ = PomodoroStateConfig::reset_mut(&mut cfg);
+    }
+
     pub fn reset(&mut self, config: Arc<Mutex<PomodoroStateConfig>>) {
         let mut cfg = config.lock().unwrap();
         let blocker = SiteBlocker::new(None);

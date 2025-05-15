@@ -24,23 +24,25 @@ pub struct PomodoroStateConfig {
     pub current_phase: Phase,
 }
 
-fn config_path() -> String {
-    if cfg!(debug_assertions) {
-        // Ruta local para desarrollo
-        "pomodoro_config.json".to_string()
+pub fn config_path() -> String {
+    if let Some(proj_dir) = dirs::config_dir() {
+        let full_path = proj_dir.join("global_pomodoro");
+        std::fs::create_dir_all(&full_path).ok(); // asegúrate de que el dir exista
+        full_path.join("pomodoro_config.json").to_string_lossy().to_string()
     } else {
-        // Ruta global para producción
-        "/etc/global_pomodoro/pomodoro_config.json".to_string()
+        "pomodoro_config.json".to_string() // fallback
     }
 }
+
+
 
 
 impl PomodoroStateConfig {
     pub fn new() -> Self {
         Self {
-            work_duration: 1 * 60,
-            break_duration: 1 * 60,
-            long_break_duration: 2 * 60,
+            work_duration: 25 * 60,
+            break_duration: 5 * 60,
+            long_break_duration: 10 * 60,
             cycles: 4,
             current_cycle: 0,
             is_running: true,
@@ -74,10 +76,13 @@ impl PomodoroStateConfig {
         Ok(())
     }
 
-    // pub fn update_time_left(&mut self, time_left: u32) -> Result<(), Error> {
-    //     self.time_left = time_left;
-    //     self.save_config()
-    // }
+    pub fn reset_mut(&mut self) -> Result<(), Error> {
+        self.current_cycle = 0;
+        self.current_phase = Phase::Work;
+        self.time_left = self.work_duration;
+        self.is_running = false;
+        self.save_config()
+    }
 
     pub fn reset(&mut self) -> Result<(), Error> {
         *self = PomodoroStateConfig::new();
