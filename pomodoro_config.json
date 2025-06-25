@@ -1,11 +1,11 @@
 {
-  "work_duration": 60,
-  "break_duration": 60,
-  "long_break_duration": 120,
+  "work_duration": 1500,
+  "break_duration": 300,
+  "long_break_duration": 600,
   "cycles": 4,
   "current_cycle": 1,
-  "is_running": true,
+  "is_running": false,
   "long_break_interval": 2,
-  "time_left": 49,
-  "current_phase": "ShortBreak"
+  "time_left": 1304,
+  "current_phase": "Work"
 }

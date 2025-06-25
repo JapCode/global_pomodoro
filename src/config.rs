@@ -1,7 +1,9 @@
-use std::{fs::OpenOptions, io::{BufReader, Write}, path::Path};
+use std::{env, path::Path};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{self, Error};
+use tokio::fs::{self, File, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -25,17 +27,20 @@ pub struct PomodoroStateConfig {
 }
 
 pub fn config_path() -> String {
-    if let Some(proj_dir) = dirs::config_dir() {
+    if is_debug() {
+        "pomodoro_config.json".to_string()
+    } else if let Some(proj_dir) = dirs::config_dir() {
         let full_path = proj_dir.join("global_pomodoro");
-        std::fs::create_dir_all(&full_path).ok(); // asegúrate de que el dir exista
+        std::fs::create_dir_all(&full_path).ok();
         full_path.join("pomodoro_config.json").to_string_lossy().to_string()
     } else {
-        "pomodoro_config.json".to_string() // fallback
+        "pomodoro_config.json".to_string()
     }
 }
 
-
-
+fn is_debug() -> bool {
+    cfg!(debug_assertions) || env::var("DEV_MODE").is_ok()
+}
 
 impl PomodoroStateConfig {
     pub fn new() -> Self {
@@ -47,45 +52,51 @@ impl PomodoroStateConfig {
             current_cycle: 0,
             is_running: true,
             long_break_interval: 2,
-            time_left: 1 * 60,
+            time_left: 25 * 60,
             current_phase: Phase::Work,
         }
     }
 
-    pub fn load_or_create() -> Result<Self, Error> {
-        if Path::new(&config_path()).exists() {
-            let file = OpenOptions::new().read(true).open(config_path()).map_err(serde_json::Error::io)?;
-            let reader = BufReader::new(file);
-            let config = serde_json::from_reader(reader)?;
+    pub async fn load_or_create() -> Result<Self, Error> {
+        let path = config_path();
+        if Path::new(&path).exists() {
+            let file = OpenOptions::new().read(true).open(&path).await.map_err(serde_json::Error::io)?;
+            let mut reader = BufReader::new(file);
+            let mut contents = String::new();
+            reader.read_to_string(&mut contents).await.map_err(serde_json::Error::io)?;
+            let config = serde_json::from_str(&contents)?;
             Ok(config)
         } else {
             let config = PomodoroStateConfig::new();
-            config.save_config()?; // guardar por primera vez
+            config.save_config().await?;
             Ok(config)
         }
     }
 
-    pub fn save_config(&self) -> Result<(), Error> {
+    pub async fn save_config(&self) -> Result<(), Error> {
         let json = serde_json::to_string_pretty(self)?;
+        let path = config_path();
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(config_path()).map_err(serde_json::Error::io)?;
-        file.write_all(json.as_bytes()).map_err(serde_json::Error::io)?;
+            .open(&path)
+            .await
+            .map_err(serde_json::Error::io)?;
+        file.write_all(json.as_bytes()).await.map_err(serde_json::Error::io)?;
         Ok(())
     }
 
-    pub fn reset_mut(&mut self) -> Result<(), Error> {
+    pub async fn reset_mut(&mut self) -> Result<(), Error> {
         self.current_cycle = 0;
         self.current_phase = Phase::Work;
         self.time_left = self.work_duration;
         self.is_running = false;
-        self.save_config()
+        self.save_config().await
     }
 
-    pub fn reset(&mut self) -> Result<(), Error> {
+    pub async fn reset(&mut self) -> Result<(), Error> {
         *self = PomodoroStateConfig::new();
-        self.save_config()
+        self.save_config().await
     }
 }
